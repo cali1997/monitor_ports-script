@@ -185,30 +185,62 @@ class FirewallSidebar(Gtk.Window):
         self.blocked_tree.append_column(col)
         scrolled1.add(self.blocked_tree)
 
-        # Open Poorten Lijst - GROOT EN ZICHTBAAR
+        # Horizontale container voor Open Poorten en Live IPs
+        hbox_main = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        hbox_main.set_margin_start(6)
+        hbox_main.set_margin_end(6)
+        vbox.pack_start(hbox_main, True, True, 0)
+
+        # LINKS: Open Poorten Lijst
+        vbox_ports = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        hbox_main.pack_start(vbox_ports, True, True, 0)
+
         lbl_open_ports = Gtk.Label()
-        lbl_open_ports.set_markup("<span foreground='#FFD700' size='x-large'><b>🔓 OPEN POORTEN:</b></span>")
+        lbl_open_ports.set_markup("<span foreground='#FFD700' size='large'><b>🔓 OPEN POORTEN:</b></span>")
         lbl_open_ports.set_xalign(0)
-        lbl_open_ports.set_margin_start(6)
-        lbl_open_ports.set_margin_top(10)
-        vbox.pack_start(lbl_open_ports, False, False, 5)
+        vbox_ports.pack_start(lbl_open_ports, False, False, 3)
 
         scrolled_ports = Gtk.ScrolledWindow()
         scrolled_ports.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled_ports.set_size_request(-1, 180)
-        vbox.pack_start(scrolled_ports, False, False, 0)
+        scrolled_ports.set_size_request(250, 300)  # Breedte, hoogte
+        vbox_ports.pack_start(scrolled_ports, True, True, 0)
 
-        self.ports_store = Gtk.ListStore(str, str)  # [port info, color]
+        self.ports_store = Gtk.ListStore(str, str)
         self.ports_tree = Gtk.TreeView(model=self.ports_store)
-        self.ports_tree.set_headers_visible(True)
+        self.ports_tree.set_headers_visible(False)
 
         renderer_port = Gtk.CellRendererText()
-        col_port = Gtk.TreeViewColumn("🔌 Protocol | Poort | Process", renderer_port, text=0, foreground=1)
+        col_port = Gtk.TreeViewColumn("Poorten", renderer_port, text=0, foreground=1)
         col_port.set_expand(True)
         self.ports_tree.append_column(col_port)
         scrolled_ports.add(self.ports_tree)
 
-        # Systeem Activiteit (kleiner)
+        # RECHTS: Live IP Verbindingen
+        vbox_ips = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        hbox_main.pack_start(vbox_ips, True, True, 0)
+
+        lbl_ips = Gtk.Label()
+        lbl_ips.set_markup("<span foreground='#FF6B35' size='large'><b>🌐 LIVE IP's:</b></span>")
+        lbl_ips.set_xalign(0)
+        vbox_ips.pack_start(lbl_ips, False, False, 3)
+
+        scrolled3 = Gtk.ScrolledWindow()
+        scrolled3.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled3.set_size_request(250, 300)  # Breedte, hoogte
+        vbox_ips.pack_start(scrolled3, True, True, 0)
+
+        self.ip_store = Gtk.ListStore(str, str, str)
+        self.ip_tree = Gtk.TreeView(model=self.ip_store)
+        self.ip_tree.set_headers_visible(False)
+        self.ip_tree.connect("button-press-event", self.on_ip_tree_click)
+
+        renderer3 = Gtk.CellRendererText()
+        col3 = Gtk.TreeViewColumn("IP", renderer3, text=0, foreground=2)
+        col3.set_expand(True)
+        self.ip_tree.append_column(col3)
+        scrolled3.add(self.ip_tree)
+
+        # Systeem Info onderaan (smaller)
         lbl_activity = Gtk.Label()
         lbl_activity.set_markup("<span foreground='#00BFFF'><b>📊 Systeem Info:</b></span>")
         lbl_activity.set_xalign(0)
@@ -217,7 +249,7 @@ class FirewallSidebar(Gtk.Window):
 
         scrolled2 = Gtk.ScrolledWindow()
         scrolled2.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled2.set_size_request(-1, 100)
+        scrolled2.set_size_request(-1, 80)
         vbox.pack_start(scrolled2, False, False, 0)
 
         self.activity_store = Gtk.ListStore(str, str)  # [activity, color]
@@ -229,29 +261,6 @@ class FirewallSidebar(Gtk.Window):
         col2.set_expand(True)
         self.activity_tree.append_column(col2)
         scrolled2.add(self.activity_tree)
-
-        # Live IP Verbindingen (vervangen van login pogingen)
-        lbl_ips = Gtk.Label()
-        lbl_ips.set_markup("<span foreground='#FF6B35'><b>🌐 Live IP Verbindingen (wie praat met mijn PC):</b></span>")
-        lbl_ips.set_xalign(0)
-        lbl_ips.set_margin_start(6)
-        vbox.pack_start(lbl_ips, False, False, 3)
-
-        scrolled3 = Gtk.ScrolledWindow()
-        scrolled3.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled3.set_size_request(-1, 150)
-        vbox.pack_start(scrolled3, True, True, 0)
-
-        self.ip_store = Gtk.ListStore(str, str, str)  # [IP, richting, color]
-        self.ip_tree = Gtk.TreeView(model=self.ip_store)
-        self.ip_tree.set_headers_visible(False)
-        self.ip_tree.connect("button-press-event", self.on_ip_tree_click)
-
-        renderer3 = Gtk.CellRendererText()
-        col3 = Gtk.TreeViewColumn("IP", renderer3, text=0, foreground=2)
-        col3.set_expand(True)
-        self.ip_tree.append_column(col3)
-        scrolled3.add(self.ip_tree)
 
         # Start monitoring threads
         threading.Thread(target=self._monitor_activity, daemon=True).start()
@@ -990,30 +999,31 @@ class FirewallSidebar(Gtk.Window):
                 extern_ports = [p for p in ports_list if p['scope'] == 'EXTERN']
                 local_ports = [p for p in ports_list if p['scope'] == 'localhost']
                 
-                # Toon externe poorten eerst (belangrijker!)
+                # Compacte weergave voor horizontale layout
                 if extern_ports:
-                    GLib.idle_add(self.ports_store.append, ["═══ EXTERNE POORTEN (bereikbaar van buitenaf) ═══", "#FFFFFF"])
+                    GLib.idle_add(self.ports_store.append, ["═══ EXTERN ═══", "#FFD700"])
                     for port in extern_ports:
-                        display = f"{port['proto']:4} | {port['port']:5} | {port['process'][:20]:20} | {port['local']}"
+                        # Korter format voor horizontale layout
+                        display = f"{port['proto']:3} {port['port']:5} {port['process'][:12]:12}"
                         GLib.idle_add(self.ports_store.append, [display, port['color']])
                 
-                # Dan localhost poorten
+                # Localhost compacter
                 if local_ports:
                     GLib.idle_add(self.ports_store.append, ["", "#000000"])
-                    GLib.idle_add(self.ports_store.append, ["═══ LOCALHOST POORTEN (alleen intern) ═══", "#808080"])
-                    for port in local_ports[:10]:  # Max 10 localhost
-                        display = f"{port['proto']:4} | {port['port']:5} | {port['process'][:20]:20}"
+                    GLib.idle_add(self.ports_store.append, ["═══ LOCAL ═══", "#808080"])
+                    for port in local_ports[:8]:  # Max 8
+                        display = f"{port['proto']:3} {port['port']:5} {port['process'][:12]:12}"
                         GLib.idle_add(self.ports_store.append, [display, port['color']])
                 
-                # Totalen
+                # Totalen compact
                 GLib.idle_add(self.ports_store.append, ["", "#000000"])
-                summary = f"📊 Totaal: {len(extern_ports)} extern, {len(local_ports)} localhost"
+                summary = f"📊 {len(extern_ports)}ext {len(local_ports)}loc"
                 GLib.idle_add(self.ports_store.append, [summary, "#FFFFFF"])
                 
-                # Waarschuwing bij gevaarlijke poorten
+                # Waarschuwing
                 dangerous = [p for p in extern_ports if p['port'] in [23, 21, 445, 139, 3389]]
                 if dangerous:
-                    GLib.idle_add(self.ports_store.append, [f"⚠️ GEVAAR: {len(dangerous)} onveilige poorten open!", "#FF0000"])
+                    GLib.idle_add(self.ports_store.append, [f"⚠️ {len(dangerous)} GEVAAR!", "#FF0000"])
                 
             except Exception as e:
                 print(f"Port monitor error: {e}")
@@ -1099,10 +1109,10 @@ class FirewallSidebar(Gtk.Window):
                 for ip, data in sorted_ips[:30]:  # Top 30
                     proto = data['proto']
                     count = data['count']
-                    ports = ', '.join(sorted(data['ports'])[:3])  # Max 3 poorten
-                    if len(data['ports']) > 3:
+                    ports = ', '.join(sorted(data['ports'])[:2])  # Max 2 poorten voor compact
+                    if len(data['ports']) > 2:
                         ports += "..."
-                    hostname = seen_ips.get(ip, "?")
+                    hostname = seen_ips.get(ip, "?")[:15]  # Korter hostname
                     
                     # Bepaal kleur gebaseerd op aantal verbindingen
                     if count > 10:
@@ -1112,8 +1122,8 @@ class FirewallSidebar(Gtk.Window):
                     else:
                         color = "#00FF00"  # Weinig = groen (normaal)
                     
-                    # Format display
-                    display = f"{ip:15} {data['direction']} :{ports:10} ({count}x) {hostname}"
+                    # Compacter format voor horizontale layout
+                    display = f"{ip:15} :{ports:8} ({count}x)"
                     
                     GLib.idle_add(self.ip_store.append, [display, data['direction'], color])
                 
