@@ -193,32 +193,32 @@ class FirewallSidebar(Gtk.Window):
         self.activity_tree.append_column(col2)
         scrolled2.add(self.activity_tree)
 
-        # Login pogingen
-        lbl_logins = Gtk.Label()
-        lbl_logins.set_markup("<span foreground='#FF6B35'><b>🔑 Recente Login Pogingen:</b></span>")
-        lbl_logins.set_xalign(0)
-        lbl_logins.set_margin_start(6)
-        vbox.pack_start(lbl_logins, False, False, 3)
+        # Live IP Verbindingen (vervangen van login pogingen)
+        lbl_ips = Gtk.Label()
+        lbl_ips.set_markup("<span foreground='#FF6B35'><b>🌐 Live IP Verbindingen (wie praat met mijn PC):</b></span>")
+        lbl_ips.set_xalign(0)
+        lbl_ips.set_margin_start(6)
+        vbox.pack_start(lbl_ips, False, False, 3)
 
         scrolled3 = Gtk.ScrolledWindow()
         scrolled3.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled3.set_size_request(-1, 150)
         vbox.pack_start(scrolled3, True, True, 0)
 
-        self.login_store = Gtk.ListStore(str, str)  # [login info, color]
-        self.login_tree = Gtk.TreeView(model=self.login_store)
-        self.login_tree.set_headers_visible(False)
-        self.login_tree.connect("button-press-event", self.on_login_tree_click)
+        self.ip_store = Gtk.ListStore(str, str, str)  # [IP, richting, color]
+        self.ip_tree = Gtk.TreeView(model=self.ip_store)
+        self.ip_tree.set_headers_visible(False)
+        self.ip_tree.connect("button-press-event", self.on_ip_tree_click)
 
         renderer3 = Gtk.CellRendererText()
-        col3 = Gtk.TreeViewColumn("Login", renderer3, text=0, foreground=1)
+        col3 = Gtk.TreeViewColumn("IP", renderer3, text=0, foreground=2)
         col3.set_expand(True)
-        self.login_tree.append_column(col3)
-        scrolled3.add(self.login_tree)
+        self.ip_tree.append_column(col3)
+        scrolled3.add(self.ip_tree)
 
         # Start monitoring threads
         threading.Thread(target=self._monitor_activity, daemon=True).start()
-        threading.Thread(target=self._monitor_logins, daemon=True).start()
+        threading.Thread(target=self._monitor_live_ips, daemon=True).start()
         GLib.timeout_add(5000, self.refresh_blocked_list)
 
     def on_header_click(self, widget, event):
@@ -630,7 +630,7 @@ class FirewallSidebar(Gtk.Window):
         return True
 
     def on_login_tree_click(self, treeview, event):
-        """Rechtermuisklik op login voor IP extractie"""
+        """Rechtermuisklik op IP voor extractie"""
         if event.button == 3:
             path = treeview.get_path_at_pos(int(event.x), int(event.y))
             if path:
@@ -640,6 +640,33 @@ class FirewallSidebar(Gtk.Window):
                     ip_match = re.search(r'(\d+\.\d+\.\d+\.\d+)', text)
                     if ip_match:
                         self.entry_ip.set_text(ip_match.group(1))
+        return True
+
+    def on_ip_tree_click(self, treeview, event):
+        """Rechtermuisklik op IP verbinding voor blokkeren"""
+        if event.button == 3:
+            path = treeview.get_path_at_pos(int(event.x), int(event.y))
+            if path:
+                model, tree_iter = treeview.get_selection().get_selected()
+                if tree_iter:
+                    text = model[tree_iter][0]
+                    # Extract IP (eerste IP in de regel)
+                    ip_match = re.search(r'(\d+\.\d+\.\d+\.\d+)', text)
+                    if ip_match:
+                        ip = ip_match.group(1)
+                        # Skip eigen IP's
+                        if not ip.startswith("127.") and not ip.startswith("0."):
+                            self.entry_ip.set_text(ip)
+                            
+                            # Toon quick menu
+                            menu = Gtk.Menu()
+                            
+                            item_block = Gtk.MenuItem(label=f"🚫 Block {ip}")
+                            item_block.connect("activate", lambda x: self.on_block_ip(None))
+                            menu.append(item_block)
+                            
+                            menu.show_all()
+                            menu.popup(None, None, None, None, event.button, event.time)
         return True
 
     def _monitor_activity(self):
@@ -671,38 +698,111 @@ class FirewallSidebar(Gtk.Window):
             
             time.sleep(INTERVAL)
 
-    def _monitor_logins(self):
-        """Monitor login pogingen"""
+    def _monitor_live_ips(self):
+        """Monitor live IP verbindingen - wie praat met je PC"""
+        seen_ips = {}
+        
         while True:
             try:
-                # Laatste logins
-                result = subprocess.run(["last", "-n", "10"], 
-                                      capture_output=True, text=True)
-                GLib.idle_add(self.login_store.clear)
-                for line in result.stdout.split('\n')[:10]:
-                    if line.strip() and 'reboot' not in line.lower():
-                        color = "#00FF00" if "still logged in" in line else "#FFA500"
-                        GLib.idle_add(self.login_store.append, [line.strip(), color])
+                # Get alle actieve verbindingen
+                result = subprocess.run(["ss", "-tunp"], capture_output=True, text=True)
                 
-                # Failed logins (indien beschikbaar) - zonder sudo
-                if os.path.exists("/var/log/auth.log") and os.access("/var/log/auth.log", os.R_OK):
+                current_ips = {}
+                
+                for line in result.stdout.split('\n')[1:]:
+                    parts = line.split()
+                    if len(parts) < 6:
+                        continue
+                    
+                    proto = parts[0]
+                    state = parts[1] if len(parts) > 1 else ""
+                    local = parts[4] if len(parts) > 4 else ""
+                    remote = parts[5] if len(parts) > 5 else ""
+                    
+                    # Skip als geen remote IP
+                    if not remote or remote == "*" or ":" not in remote:
+                        continue
+                    
+                    # Extract remote IP
                     try:
-                        result = subprocess.run(
-                            ["grep", "Failed password", "/var/log/auth.log"],
-                            capture_output=True, text=True
-                        )
-                        failed = result.stdout.split('\n')[-5:]  # Laatste 5
-                        for line in failed:
-                            if line.strip():
-                                GLib.idle_add(self.login_store.prepend, 
-                                            [f"❌ {line.strip()}", "#FF0000"])
+                        remote_ip = remote.rsplit(':', 1)[0]
+                        remote_port = remote.rsplit(':', 1)[1]
+                        local_port = local.rsplit(':', 1)[1] if ':' in local else "?"
+                        
+                        # Skip localhost
+                        if remote_ip.startswith("127.") or remote_ip.startswith("::1") or remote_ip == "0.0.0.0":
+                            continue
+                        
+                        # Bepaal richting
+                        if state in ["ESTAB", "ESTABLISHED"]:
+                            direction = "↔"
+                        elif state == "LISTEN":
+                            continue  # Skip listeners
+                        else:
+                            direction = "→"
+                        
+                        # Count verbindingen per IP
+                        if remote_ip not in current_ips:
+                            current_ips[remote_ip] = {
+                                'count': 0,
+                                'ports': set(),
+                                'proto': proto,
+                                'direction': direction
+                            }
+                        
+                        current_ips[remote_ip]['count'] += 1
+                        current_ips[remote_ip]['ports'].add(remote_port)
+                        
                     except:
-                        pass
+                        continue
+                
+                # Lookup hostnames voor nieuwe IPs (in background)
+                for ip in current_ips:
+                    if ip not in seen_ips:
+                        try:
+                            # Quick reverse DNS lookup (timeout 1 sec)
+                            import socket
+                            socket.setdefaulttimeout(1)
+                            hostname = socket.gethostbyaddr(ip)[0]
+                            seen_ips[ip] = hostname[:30]  # Limiteer lengte
+                        except:
+                            seen_ips[ip] = "unknown"
+                
+                # Update UI
+                GLib.idle_add(self.ip_store.clear)
+                
+                # Sorteer op aantal verbindingen (meeste eerst)
+                sorted_ips = sorted(current_ips.items(), key=lambda x: x[1]['count'], reverse=True)
+                
+                for ip, data in sorted_ips[:30]:  # Top 30
+                    proto = data['proto']
+                    count = data['count']
+                    ports = ', '.join(sorted(data['ports'])[:3])  # Max 3 poorten
+                    if len(data['ports']) > 3:
+                        ports += "..."
+                    hostname = seen_ips.get(ip, "?")
+                    
+                    # Bepaal kleur gebaseerd op aantal verbindingen
+                    if count > 10:
+                        color = "#FF0000"  # Veel verbindingen = rood (verdacht?)
+                    elif count > 5:
+                        color = "#FFA500"  # Gemiddeld = oranje
+                    else:
+                        color = "#00FF00"  # Weinig = groen (normaal)
+                    
+                    # Format display
+                    display = f"{ip:15} {data['direction']} :{ports:10} ({count}x) {hostname}"
+                    
+                    GLib.idle_add(self.ip_store.append, [display, data['direction'], color])
+                
+                # Als geen verbindingen
+                if not current_ips:
+                    GLib.idle_add(self.ip_store.append, ["⚪ Geen externe verbindingen", "", "#808080"])
                         
             except Exception as e:
-                print(f"Login monitor error: {e}")
+                print(f"IP monitor error: {e}")
             
-            time.sleep(INTERVAL * 2)  # Minder frequent
+            time.sleep(INTERVAL)  # Update elke 3 seconden
 
     def show_notification(self, msg, color):
         """Toon notificatie"""
