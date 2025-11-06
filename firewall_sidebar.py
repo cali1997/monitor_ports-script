@@ -185,24 +185,24 @@ class FirewallSidebar(Gtk.Window):
         self.blocked_tree.append_column(col)
         scrolled1.add(self.blocked_tree)
 
-        # Horizontale container voor Open Poorten en Live IPs
+        # Horizontale container voor alle 3 secties
         hbox_main = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         hbox_main.set_margin_start(6)
         hbox_main.set_margin_end(6)
         vbox.pack_start(hbox_main, True, True, 0)
 
-        # LINKS: Open Poorten Lijst
+        # LINKS: Open Poorten
         vbox_ports = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         hbox_main.pack_start(vbox_ports, True, True, 0)
 
         lbl_open_ports = Gtk.Label()
-        lbl_open_ports.set_markup("<span foreground='#FFD700' size='large'><b>🔓 OPEN POORTEN:</b></span>")
+        lbl_open_ports.set_markup("<span foreground='#FFD700' size='large'><b>🔓 POORTEN</b></span>")
         lbl_open_ports.set_xalign(0)
         vbox_ports.pack_start(lbl_open_ports, False, False, 3)
 
         scrolled_ports = Gtk.ScrolledWindow()
         scrolled_ports.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled_ports.set_size_request(250, 300)  # Breedte, hoogte
+        scrolled_ports.set_size_request(180, 350)
         vbox_ports.pack_start(scrolled_ports, True, True, 0)
 
         self.ports_store = Gtk.ListStore(str, str)
@@ -215,18 +215,18 @@ class FirewallSidebar(Gtk.Window):
         self.ports_tree.append_column(col_port)
         scrolled_ports.add(self.ports_tree)
 
-        # RECHTS: Live IP Verbindingen
+        # MIDDEN: Live IP Verbindingen
         vbox_ips = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         hbox_main.pack_start(vbox_ips, True, True, 0)
 
         lbl_ips = Gtk.Label()
-        lbl_ips.set_markup("<span foreground='#FF6B35' size='large'><b>🌐 LIVE IP's:</b></span>")
+        lbl_ips.set_markup("<span foreground='#FF6B35' size='large'><b>🌐 LIVE IPs</b></span>")
         lbl_ips.set_xalign(0)
         vbox_ips.pack_start(lbl_ips, False, False, 3)
 
         scrolled3 = Gtk.ScrolledWindow()
         scrolled3.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled3.set_size_request(250, 300)  # Breedte, hoogte
+        scrolled3.set_size_request(180, 350)
         vbox_ips.pack_start(scrolled3, True, True, 0)
 
         self.ip_store = Gtk.ListStore(str, str, str)
@@ -240,17 +240,19 @@ class FirewallSidebar(Gtk.Window):
         self.ip_tree.append_column(col3)
         scrolled3.add(self.ip_tree)
 
-        # Systeem Info onderaan (smaller)
+        # RECHTS: Systeem Info
+        vbox_sys = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        hbox_main.pack_start(vbox_sys, True, True, 0)
+
         lbl_activity = Gtk.Label()
-        lbl_activity.set_markup("<span foreground='#00BFFF'><b>📊 Systeem Info:</b></span>")
+        lbl_activity.set_markup("<span foreground='#00BFFF' size='large'><b>📊 SYSTEEM</b></span>")
         lbl_activity.set_xalign(0)
-        lbl_activity.set_margin_start(6)
-        vbox.pack_start(lbl_activity, False, False, 3)
+        vbox_sys.pack_start(lbl_activity, False, False, 3)
 
         scrolled2 = Gtk.ScrolledWindow()
         scrolled2.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled2.set_size_request(-1, 80)
-        vbox.pack_start(scrolled2, False, False, 0)
+        scrolled2.set_size_request(180, 350)
+        vbox_sys.pack_start(scrolled2, True, True, 0)
 
         self.activity_store = Gtk.ListStore(str, str)  # [activity, color]
         self.activity_tree = Gtk.TreeView(model=self.activity_store)
@@ -262,6 +264,28 @@ class FirewallSidebar(Gtk.Window):
         self.activity_tree.append_column(col2)
         scrolled2.add(self.activity_tree)
 
+        # Rotatie knoppen om secties te verschuiven
+        hbox_rotate = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        hbox_rotate.set_margin_start(6)
+        hbox_rotate.set_margin_end(6)
+        hbox_rotate.set_margin_top(8)
+        hbox_rotate.set_margin_bottom(4)
+        vbox.pack_start(hbox_rotate, False, False, 0)
+
+        btn_rotate_left = Gtk.Button(label="◀ Roteer Links")
+        btn_rotate_left.set_tooltip_text("Verplaats secties naar links (Poorten → Systeem, IPs → Poorten, Systeem → IPs)")
+        btn_rotate_left.connect("clicked", self.on_rotate_left)
+        hbox_rotate.pack_start(btn_rotate_left, True, True, 0)
+
+        btn_rotate_right = Gtk.Button(label="Roteer Rechts ▶")
+        btn_rotate_right.set_tooltip_text("Verplaats secties naar rechts (Poorten → IPs, IPs → Systeem, Systeem → Poorten)")
+        btn_rotate_right.connect("clicked", self.on_rotate_right)
+        hbox_rotate.pack_start(btn_rotate_right, True, True, 0)
+
+        # Bewaar referenties naar de vboxen voor rotatie
+        self.section_boxes = [vbox_ports, vbox_ips, vbox_sys]
+        self.section_names = ["🔓 POORTEN", "🌐 LIVE IPs", "📊 SYSTEEM"]
+        
         # Start monitoring threads
         threading.Thread(target=self._monitor_activity, daemon=True).start()
         threading.Thread(target=self._monitor_live_ips, daemon=True).start()
@@ -1139,6 +1163,40 @@ class FirewallSidebar(Gtk.Window):
     def show_notification(self, msg, color):
         """Toon notificatie"""
         GLib.idle_add(self.activity_store.prepend, [f"📢 {msg}", color])
+
+    def on_rotate_left(self, button):
+        """Roteer secties naar links (cyclisch)"""
+        # Verwijder alle children uit de container
+        for child in self.section_boxes:
+            self.section_boxes[0].get_parent().remove(child)
+        
+        # Roteer de lijst naar links
+        self.section_boxes = [self.section_boxes[1], self.section_boxes[2], self.section_boxes[0]]
+        
+        # Voeg ze terug toe in nieuwe volgorde
+        hbox = self.section_boxes[0].get_parent()
+        for box in self.section_boxes:
+            hbox.pack_start(box, True, True, 0)
+        
+        self.show_all()
+        self.show_notification("◀ Geswitcht naar links!", "#00BFFF")
+
+    def on_rotate_right(self, button):
+        """Roteer secties naar rechts (cyclisch)"""
+        # Verwijder alle children uit de container
+        for child in self.section_boxes:
+            self.section_boxes[0].get_parent().remove(child)
+        
+        # Roteer de lijst naar rechts
+        self.section_boxes = [self.section_boxes[2], self.section_boxes[0], self.section_boxes[1]]
+        
+        # Voeg ze terug toe in nieuwe volgorde
+        hbox = self.section_boxes[0].get_parent()
+        for box in self.section_boxes:
+            hbox.pack_start(box, True, True, 0)
+        
+        self.show_all()
+        self.show_notification("Geswitcht naar rechts! ▶", "#00BFFF")
 
 if __name__ == "__main__":
     win = FirewallSidebar()
