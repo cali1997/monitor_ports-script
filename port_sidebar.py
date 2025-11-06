@@ -109,11 +109,14 @@ class PortSidebar(Gtk.Window):
         self.set_resizable(True)
         self.set_default_size(550, 700)
 
-        # Positie rechts op scherm (fixed deprecation)
+        # Positie rechts op scherm (nieuwe GTK3 methode)
         display = Gdk.Display.get_default()
         monitor = display.get_primary_monitor()
-        geom = monitor.get_geometry()
-        self.move(geom.x + geom.width - 550, geom.y + 30)
+        if monitor:
+            geom = monitor.get_geometry()
+            self.move(geom.x + geom.width - 550, geom.y + 30)
+        else:
+            self.move(1370, 30)  # Fallback positie
 
         self.connect("delete-event", Gtk.main_quit)
 

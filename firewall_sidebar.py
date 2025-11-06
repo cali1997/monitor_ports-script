@@ -42,11 +42,14 @@ class FirewallSidebar(Gtk.Window):
         self.set_resizable(True)
         self.set_default_size(550, 700)
 
-        # Positie links op scherm
-        screen = Gdk.Screen.get_default()
-        monitor = screen.get_primary_monitor()
-        geom = screen.get_monitor_geometry(monitor)
-        self.move(geom.x + 30, geom.y + 30)
+        # Positie links op scherm (nieuwe GTK3 methode)
+        display = Gdk.Display.get_default()
+        monitor = display.get_primary_monitor()
+        if monitor:
+            geom = monitor.get_geometry()
+            self.move(geom.x + 30, geom.y + 30)
+        else:
+            self.move(30, 30)  # Fallback positie
 
         self.connect("delete-event", Gtk.main_quit)
 
