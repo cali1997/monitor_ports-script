@@ -245,6 +245,16 @@ class PortSidebar(Gtk.Window):
         self.conn_tree.append_column(col2)
         scrolled2.add(self.conn_tree)
 
+        # Keyboard controls info
+        info_label = Gtk.Label()
+        info_label.set_markup("<span size='small' foreground='#808080'>⌨️ Pijltjestoetsen: Beweeg window | Ctrl+Pijltjes: Sneller</span>")
+        info_label.set_margin_top(6)
+        info_label.set_margin_bottom(4)
+        vbox.pack_start(info_label, False, False, 0)
+
+        # Connect keyboard events
+        self.connect("key-press-event", self.on_key_press)
+
         # Start threads
         threading.Thread(target=self._poll_loop, daemon=True).start()
         GLib.timeout_add(300, self._refresh_highlights)
@@ -295,6 +305,33 @@ class PortSidebar(Gtk.Window):
             new_y = int(event.y_root - self.drag_start_y)
             self.move(new_x, new_y)
             return True
+
+    def on_key_press(self, widget, event):
+        """Handle keyboard shortcuts voor window movement"""
+        keyval = event.keyval
+        state = event.state
+        
+        # Haal huidige positie op
+        x, y = self.get_position()
+        
+        # Bepaal stap grootte (Ctrl = sneller)
+        step = 50 if state & Gdk.ModifierType.CONTROL_MASK else 10
+        
+        # Pijltjestoetsen
+        if keyval == Gdk.KEY_Left:
+            self.move(x - step, y)
+            return True
+        elif keyval == Gdk.KEY_Right:
+            self.move(x + step, y)
+            return True
+        elif keyval == Gdk.KEY_Up:
+            self.move(x, y - step)
+            return True
+        elif keyval == Gdk.KEY_Down:
+            self.move(x, y + step)
+            return True
+        
+        return False
 
     def on_toggle_localhost(self, button):
         """Toggle localhost weergave"""

@@ -264,27 +264,15 @@ class FirewallSidebar(Gtk.Window):
         self.activity_tree.append_column(col2)
         scrolled2.add(self.activity_tree)
 
-        # Rotatie knoppen om secties te verschuiven
-        hbox_rotate = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        hbox_rotate.set_margin_start(6)
-        hbox_rotate.set_margin_end(6)
-        hbox_rotate.set_margin_top(8)
-        hbox_rotate.set_margin_bottom(4)
-        vbox.pack_start(hbox_rotate, False, False, 0)
+        # Keyboard controls voor window beweging
+        info_label = Gtk.Label()
+        info_label.set_markup("<span size='small' foreground='#808080'>⌨️ Pijltjestoetsen: Beweeg window | Ctrl+Pijltjes: Sneller</span>")
+        info_label.set_margin_top(6)
+        info_label.set_margin_bottom(4)
+        vbox.pack_start(info_label, False, False, 0)
 
-        btn_rotate_left = Gtk.Button(label="◀ Roteer Links")
-        btn_rotate_left.set_tooltip_text("Verplaats secties naar links (Poorten → Systeem, IPs → Poorten, Systeem → IPs)")
-        btn_rotate_left.connect("clicked", self.on_rotate_left)
-        hbox_rotate.pack_start(btn_rotate_left, True, True, 0)
-
-        btn_rotate_right = Gtk.Button(label="Roteer Rechts ▶")
-        btn_rotate_right.set_tooltip_text("Verplaats secties naar rechts (Poorten → IPs, IPs → Systeem, Systeem → Poorten)")
-        btn_rotate_right.connect("clicked", self.on_rotate_right)
-        hbox_rotate.pack_start(btn_rotate_right, True, True, 0)
-
-        # Bewaar referenties naar de vboxen voor rotatie
-        self.section_boxes = [vbox_ports, vbox_ips, vbox_sys]
-        self.section_names = ["🔓 POORTEN", "🌐 LIVE IPs", "📊 SYSTEEM"]
+        # Connect keyboard events
+        self.connect("key-press-event", self.on_key_press)
         
         # Start monitoring threads
         threading.Thread(target=self._monitor_activity, daemon=True).start()
@@ -1163,6 +1151,37 @@ class FirewallSidebar(Gtk.Window):
     def show_notification(self, msg, color):
         """Toon notificatie"""
         GLib.idle_add(self.activity_store.prepend, [f"📢 {msg}", color])
+
+    def on_key_press(self, widget, event):
+        """Handle keyboard shortcuts voor window movement"""
+        keyval = event.keyval
+        state = event.state
+        
+        # Haal huidige positie op
+        x, y = self.get_position()
+        
+        # Bepaal stap grootte
+        step = 50 if state & Gdk.ModifierType.CONTROL_MASK else 10
+        
+        # Pijltjestoetsen
+        if keyval == Gdk.KEY_Left:
+            self.move(x - step, y)
+            self.show_notification(f"◀ Verschoven naar links ({step}px)", "#00BFFF")
+            return True
+        elif keyval == Gdk.KEY_Right:
+            self.move(x + step, y)
+            self.show_notification(f"Verschoven naar rechts ({step}px) ▶", "#00BFFF")
+            return True
+        elif keyval == Gdk.KEY_Up:
+            self.move(x, y - step)
+            self.show_notification(f"▲ Verschoven naar boven ({step}px)", "#00BFFF")
+            return True
+        elif keyval == Gdk.KEY_Down:
+            self.move(x, y + step)
+            self.show_notification(f"Verschoven naar onder ({step}px) ▼", "#00BFFF")
+            return True
+        
+        return False
 
     def on_rotate_left(self, button):
         """Roteer secties naar links (cyclisch)"""
