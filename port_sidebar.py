@@ -176,6 +176,27 @@ class PortSidebar(Gtk.Window):
         btn_clear.connect("clicked", self.on_clear)
         btn_box.pack_start(btn_clear, True, True, 0)
 
+        # Manual kill section
+        kill_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        vbox.pack_start(kill_box, False, False, 3)
+
+        lbl_kill = Gtk.Label()
+        lbl_kill.set_markup("<span foreground='#FF6B6B'><b>🔪 Kill poort:</b></span>")
+        kill_box.pack_start(lbl_kill, False, False, 5)
+
+        self.entry_port = Gtk.Entry()
+        self.entry_port.set_placeholder_text("Poort nummer (bijv. 8080)")
+        self.entry_port.set_max_length(5)
+        kill_box.pack_start(self.entry_port, True, True, 0)
+
+        btn_kill_port = Gtk.Button(label="💀 Kill")
+        btn_kill_port.connect("clicked", self.on_manual_kill)
+        kill_box.pack_start(btn_kill_port, False, False, 0)
+
+        btn_kill_all_port = Gtk.Button(label="⚡ Kill All")
+        btn_kill_all_port.connect("clicked", self.on_kill_all_on_port)
+        kill_box.pack_start(btn_kill_all_port, False, False, 0)
+
         # Scrolled window for listeners
         self.lbl_listeners = Gtk.Label()
         self.lbl_listeners.set_markup("<span foreground='#FFD700'><b>📍 Luisterende Poorten:</b></span>")
@@ -297,6 +318,77 @@ class PortSidebar(Gtk.Window):
         with self.lock:
             self.store.clear()
             self.conn_store.clear()
+
+    def on_manual_kill(self, button):
+        """Kill eerste proces op opgegeven poort"""
+        port_text = self.entry_port.get_text().strip()
+        if not port_text.isdigit():
+            self.show_notification("⚠️ Voer een geldig poortnummer in", "#FFA500")
+            return
+        
+        port = int(port_text)
+        pids = self.find_pids_on_port(port)
+        
+        if not pids:
+            self.show_notification(f"❌ Geen proces gevonden op poort {port}", "#FF0000")
+            return
+        
+        # Kill eerste proces
+        pid = pids[0]
+        self.kill_process(pid, signal.SIGTERM)
+        self.entry_port.set_text("")
+
+    def on_kill_all_on_port(self, button):
+        """Kill alle processen op opgegeven poort"""
+        port_text = self.entry_port.get_text().strip()
+        if not port_text.isdigit():
+            self.show_notification("⚠️ Voer een geldig poortnummer in", "#FFA500")
+            return
+        
+        port = int(port_text)
+        pids = self.find_pids_on_port(port)
+        
+        if not pids:
+            self.show_notification(f"❌ Geen proces gevonden op poort {port}", "#FF0000")
+            return
+        
+        # Kill alle processen
+        killed_count = 0
+        for pid in pids:
+            try:
+                os.kill(int(pid), signal.SIGTERM)
+                killed_count += 1
+            except:
+                pass
+        
+        self.show_notification(f"✅ {killed_count} proces(sen) gestopt op poort {port}", "#00FF00")
+        self.entry_port.set_text("")
+
+    def find_pids_on_port(self, port):
+        """Vind alle PIDs die op een bepaalde poort luisteren"""
+        pids = []
+        try:
+            # Probeer met ss
+            out = subprocess.run(
+                ["ss", "-tulnp", f"sport = :{port}"],
+                capture_output=True, text=True
+            )
+            for line in out.stdout.splitlines()[1:]:
+                match = re.search(r'pid=(\d+)', line)
+                if match:
+                    pids.append(match.group(1))
+            
+            # Als ss niks vindt, probeer lsof
+            if not pids:
+                out = subprocess.run(
+                    ["lsof", "-ti", f":{port}"],
+                    capture_output=True, text=True
+                )
+                pids = [p.strip() for p in out.stdout.strip().split('\n') if p.strip()]
+        except Exception as e:
+            print(f"Error finding PIDs: {e}")
+        
+        return pids
 
     def on_tree_button_press(self, treeview, event):
         """Rechtermuisklik menu voor kill functie"""
