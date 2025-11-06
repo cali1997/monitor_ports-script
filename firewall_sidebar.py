@@ -228,11 +228,19 @@ class FirewallSidebar(Gtk.Window):
             return
 
         try:
-            # Probeer met iptables
+            # Gebruik pkexec voor grafische sudo prompt (of NOPASSWD sudoers)
+            # Probeer eerst zonder sudo (als NOPASSWD is ingesteld)
             result = subprocess.run(
-                ["sudo", "iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"],
+                ["iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"],
                 capture_output=True, text=True
             )
+            
+            # Als dat niet werkt, probeer met pkexec (grafische prompt)
+            if result.returncode != 0:
+                result = subprocess.run(
+                    ["pkexec", "iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"],
+                    capture_output=True, text=True
+                )
             
             if result.returncode == 0:
                 self.blocked_ips.add(ip)
@@ -241,19 +249,26 @@ class FirewallSidebar(Gtk.Window):
                 self.show_notification(f"✅ IP {ip} geblokkeerd!", "#00FF00")
                 self.entry_ip.set_text("")
             else:
-                # Probeer met ufw
-                result = subprocess.run(
-                    ["sudo", "ufw", "deny", "from", ip],
-                    capture_output=True, text=True
-                )
-                if result.returncode == 0:
-                    self.blocked_ips.add(ip)
-                    timestamp = time.strftime("%H:%M:%S")
-                    GLib.idle_add(self.blocked_store.prepend, [f"{ip} (UFW blocked {timestamp})", "#FF0000"])
-                    self.show_notification(f"✅ IP {ip} geblokkeerd via UFW!", "#00FF00")
-                    self.entry_ip.set_text("")
-                else:
-                    self.show_notification(f"❌ Firewall error (probeer sudo)", "#FF0000")
+                # Probeer met hosts.deny als alternatief (geen sudo nodig)
+                self.block_via_hosts_deny(ip)
+        except Exception as e:
+            self.show_notification(f"❌ Error: {e}", "#FF0000")
+
+    def block_via_hosts_deny(self, ip):
+        """Alternatieve methode: blokkeer via /etc/hosts.deny (TCP wrappers)"""
+        try:
+            result = subprocess.run(
+                ["pkexec", "sh", "-c", f"echo 'ALL: {ip}' >> /etc/hosts.deny"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                self.blocked_ips.add(ip)
+                timestamp = time.strftime("%H:%M:%S")
+                GLib.idle_add(self.blocked_store.prepend, [f"{ip} (hosts.deny {timestamp})", "#FF0000"])
+                self.show_notification(f"✅ IP {ip} geblokkeerd via hosts.deny!", "#00FF00")
+                self.entry_ip.set_text("")
+            else:
+                self.show_notification(f"❌ Geen permissie. Setup required.", "#FF0000")
         except Exception as e:
             self.show_notification(f"❌ Error: {e}", "#FF0000")
 
@@ -265,11 +280,17 @@ class FirewallSidebar(Gtk.Window):
             return
 
         try:
-            # Probeer met iptables
+            # Probeer met iptables (zonder sudo eerst, dan met pkexec)
             result = subprocess.run(
-                ["sudo", "iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"],
+                ["iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"],
                 capture_output=True, text=True
             )
+            
+            if result.returncode != 0:
+                result = subprocess.run(
+                    ["pkexec", "iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"],
+                    capture_output=True, text=True
+                )
             
             if result.returncode == 0:
                 self.blocked_ips.discard(ip)
@@ -277,18 +298,25 @@ class FirewallSidebar(Gtk.Window):
                 self.entry_ip.set_text("")
                 GLib.idle_add(self.refresh_blocked_list)
             else:
-                # Probeer met ufw
-                result = subprocess.run(
-                    ["sudo", "ufw", "delete", "deny", "from", ip],
-                    capture_output=True, text=True
-                )
-                if result.returncode == 0:
-                    self.blocked_ips.discard(ip)
-                    self.show_notification(f"✅ IP {ip} gedeblokkeerd via UFW!", "#00FF00")
-                    self.entry_ip.set_text("")
-                    GLib.idle_add(self.refresh_blocked_list)
-                else:
-                    self.show_notification(f"⚠️ IP niet gevonden in firewall", "#FFA500")
+                # Probeer hosts.deny te cleanen
+                self.unblock_via_hosts_deny(ip)
+        except Exception as e:
+            self.show_notification(f"❌ Error: {e}", "#FF0000")
+
+    def unblock_via_hosts_deny(self, ip):
+        """Verwijder IP uit hosts.deny"""
+        try:
+            result = subprocess.run(
+                ["pkexec", "sed", "-i", f"/ALL: {ip}/d", "/etc/hosts.deny"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                self.blocked_ips.discard(ip)
+                self.show_notification(f"✅ IP {ip} verwijderd uit hosts.deny!", "#00FF00")
+                self.entry_ip.set_text("")
+                GLib.idle_add(self.refresh_blocked_list)
+            else:
+                self.show_notification(f"⚠️ IP niet gevonden", "#FFA500")
         except Exception as e:
             self.show_notification(f"❌ Error: {e}", "#FF0000")
 
@@ -303,8 +331,13 @@ class FirewallSidebar(Gtk.Window):
     def on_show_rules(self, button):
         """Toon firewall rules"""
         try:
-            result = subprocess.run(["sudo", "iptables", "-L", "-n", "-v"], 
+            # Probeer eerst zonder sudo
+            result = subprocess.run(["iptables", "-L", "-n", "-v"], 
                                   capture_output=True, text=True)
+            if result.returncode != 0:
+                result = subprocess.run(["pkexec", "iptables", "-L", "-n", "-v"], 
+                                      capture_output=True, text=True)
+            
             lines = result.stdout.split('\n')[:20]  # Eerste 20 regels
             GLib.idle_add(self.activity_store.clear)
             for line in lines:
@@ -328,7 +361,9 @@ class FirewallSidebar(Gtk.Window):
         
         if response == Gtk.ResponseType.YES:
             try:
-                subprocess.run(["sudo", "iptables", "-F"], check=True)
+                result = subprocess.run(["iptables", "-F"], capture_output=True, text=True)
+                if result.returncode != 0:
+                    result = subprocess.run(["pkexec", "iptables", "-F"], check=True)
                 self.blocked_ips.clear()
                 GLib.idle_add(self.blocked_store.clear)
                 self.show_notification("✅ Alle rules verwijderd!", "#00FF00")
@@ -338,8 +373,12 @@ class FirewallSidebar(Gtk.Window):
     def on_ufw_status(self, button):
         """Toon UFW status"""
         try:
-            result = subprocess.run(["sudo", "ufw", "status", "verbose"], 
+            result = subprocess.run(["ufw", "status", "verbose"], 
                                   capture_output=True, text=True)
+            if result.returncode != 0:
+                result = subprocess.run(["pkexec", "ufw", "status", "verbose"], 
+                                      capture_output=True, text=True)
+            
             GLib.idle_add(self.activity_store.clear)
             for line in result.stdout.split('\n'):
                 if line.strip():
@@ -419,11 +458,11 @@ class FirewallSidebar(Gtk.Window):
                         color = "#00FF00" if "still logged in" in line else "#FFA500"
                         GLib.idle_add(self.login_store.append, [line.strip(), color])
                 
-                # Failed logins (indien beschikbaar)
-                if os.path.exists("/var/log/auth.log"):
+                # Failed logins (indien beschikbaar) - zonder sudo
+                if os.path.exists("/var/log/auth.log") and os.access("/var/log/auth.log", os.R_OK):
                     try:
                         result = subprocess.run(
-                            ["sudo", "grep", "Failed password", "/var/log/auth.log"],
+                            ["grep", "Failed password", "/var/log/auth.log"],
                             capture_output=True, text=True
                         )
                         failed = result.stdout.split('\n')[-5:]  # Laatste 5
