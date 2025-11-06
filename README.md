@@ -1,88 +1,243 @@
 # monitor_ports-script
 
-Dit project bevat twee scripts voor het monitoren van open poorten op je Linux systeem.
+Complete security & monitoring suite voor Linux met dual-sidebar interface.
 
-## Scripts
+## 🚀 Scripts
 
-### 1. monitor_ports.sh
-Een bash script dat continu in de terminal de open TCP/UDP poorten monitort en wijzigingen toont.
+### 1. port_sidebar.py (RECHTS)
+**Port Monitor Pro** - Real-time poort monitoring
+- 🔍 Monitor open TCP/UDP poorten
+- 🔪 Kill processen (rechtermuisklik of handmatig)
+- 📡 Bekijk actieve verbindingen (in/uitgaand)
+- 🏠 Toggle localhost weergave
+- 🖱️ Versleepbaar venster
 
-### 2. port_sidebar.py
-Een GTK3 Python applicatie die een sidebar venster toont met real-time port monitoring.
+### 2. firewall_sidebar.py (LINKS) ⭐ NIEUW!
+**Firewall & Security Control** - Beveiligingsbeheer
+- 🚫 Blokkeer/deblokkeer IP adressen
+- 🛡️ iptables & UFW controle
+- 📊 Systeem activiteit monitoring
+- 🔑 Login pogingen tracker
+- ⚡ Quick firewall actions
 
-## Installatie
+### 3. launch_both.sh ⭐ NIEUW!
+**Dual Sidebar Launcher** - Start beide tegelijk
+- Start port monitor (rechts)
+- Start firewall control (links)
+- Beide vensters tegelijk beheren
+
+### 4. monitor_ports.sh
+**Terminal Monitor** - Bash monitoring script
+- Eenvoudige terminal interface
+- Logging opties
+- Configureerbare filters
+
+## 📦 Installatie
 
 ### Vereisten
-Voor `monitor_ports.sh`:
-- bash
-- ss (meestal al geïnstalleerd)
-
-Voor `port_sidebar.py`:
+**Basis:**
 - Python 3
 - GTK 3
 - PyGObject
+- sudo rechten (voor firewall functies)
 
-Installeer de vereisten voor Python script:
+**Installeer dependencies:**
 ```bash
-sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 iptables ufw
 ```
 
-## Gebruik
+## 🎮 Gebruik
 
-### monitor_ports.sh starten
-
-1. Maak het script uitvoerbaar:
+### Beide sidebars starten (AANBEVOLEN):
 ```bash
-chmod +x monitor_ports.sh
+./launch_both.sh
 ```
 
-2. Start het script:
-```bash
-./monitor_ports.sh
-```
+### Of apart:
 
-3. Stop met Ctrl+C
-
-**Instellingen aanpassen:**
-Open het script en pas de variabelen aan het begin aan:
-- `INTERVAL`: tijd tussen checks (seconden)
-- `ONLY_TCP`: true voor alleen TCP, false voor TCP+UDP
-- `FILTER_LOCAL`: true om localhost te verbergen
-- `LOGFILE`: pad voor logbestand (optioneel)
-
-### port_sidebar.py starten
-
-1. Maak het script uitvoerbaar:
-```bash
-chmod +x port_sidebar.py
-```
-
-2. Start het script:
+**Port Monitor:**
 ```bash
 ./port_sidebar.py
 ```
 
-**Automatisch starten bij login:**
-Voeg toe aan je startup applicaties of gebruik:
+**Firewall Control:**
 ```bash
-cp port_sidebar.py ~/.local/bin/
-echo "python3 ~/.local/bin/port_sidebar.py &" >> ~/.bashrc
+./firewall_sidebar.py
 ```
 
-## Kenmerken
+**Terminal Monitor:**
+```bash
+./monitor_ports.sh
+```
 
-### monitor_ports.sh
-- Real-time monitoring van open poorten
-- Toont nieuwe en gesloten poorten
-- Optionele logging
-- Aanpasbare filters
+## ✨ Features
 
-### port_sidebar.py
-- GTK sidebar interface
-- Real-time updates
-- Kleurrijke weergave
-- Highlight voor nieuwe poorten
-- Donker thema
+### Port Monitor Pro (port_sidebar.py)
+✅ Real-time poort detectie  
+✅ Proces informatie (naam + PID)  
+✅ Kill functie (rechtermuisklik)  
+✅ Handmatige poort kill (type poortnummer)  
+✅ Actieve verbindingen (↓IN / ↑OUT)  
+✅ Localhost filter toggle  
+✅ Sorteer & clear functies  
+✅ Versleepbaar venster  
+✅ Groen/rood kleurcodering  
 
-## Licentie
+### Firewall Control (firewall_sidebar.py)
+✅ IP blokkeren/deblokkeren  
+✅ iptables & UFW support  
+✅ Firewall rules viewer  
+✅ Flush all rules (met bevestiging)  
+✅ Systeem activiteit (CPU, netwerk)  
+✅ Login pogingen monitoring  
+✅ Failed login detectie  
+✅ Rechtermuisklik → auto-fill IP  
+✅ Versleepbaar venster  
+✅ Oranje/rood security thema  
+
+## 🔥 Firewall Functies
+
+### IP Blokkeren:
+```
+1. Type IP adres: 192.168.1.100
+2. Klik "🚫 Block"
+3. IP is direct geblokkeerd via iptables/UFW
+```
+
+### IP Deblokkeren:
+```
+1. Type IP adres of klik op geblokkeerd IP
+2. Klik "✅ Unblock"
+```
+
+### Firewall Rules Bekijken:
+```
+Klik "📋 Toon Rules" → Zie alle iptables rules
+Klik "⚡ UFW Status" → Zie UFW configuratie
+```
+
+### ⚠️ GEVAARLIJK:
+```
+"💧 Flush All" → Verwijdert ALLE firewall rules!
+(Vraagt bevestiging)
+```
+
+## 🎯 Handige Tips
+
+### Port Monitor:
+- **Rechtermuisklik** op poort → Kill menu
+- **Type poortnummer** → Kill handmatig
+- **"Kill All"** → Stop alle processen op die poort
+- **Drag header** → Verplaats venster
+
+### Firewall Control:
+- **Rechtermuisklik** op geblokkeerd IP → Auto-fill voor unblock
+- **Rechtermuisklik** op login → Extract IP voor block
+- **Monitor failed logins** → Block verdachte IPs
+- **Drag header** → Verplaats venster
+
+## 🚨 Security Waarschuwingen
+
+1. **Firewall wijzigingen vereisen sudo** - Je krijgt mogelijk een wachtwoord prompt
+2. **Test firewall rules zorgvuldig** - Blokkeer niet je eigen IP!
+3. **Flush All is permanent** - Alleen gebruiken als je weet wat je doet
+4. **SSH blokkeren** kan je buitensluiten op remote servers
+5. **Backup firewall config** voordat je grote wijzigingen maakt
+
+## 📋 Voorbeelden
+
+### Scenario 1: Verdacht IP detecteren en blokkeren
+```
+1. Open beide sidebars: ./launch_both.sh
+2. Zie verdachte connectie in Port Monitor
+3. Kopieer IP adres
+4. Ga naar Firewall Control
+5. Plak IP en klik Block
+```
+
+### Scenario 2: Poort 8080 vrijmaken
+```
+1. Type "8080" in Port Monitor
+2. Klik "Kill All"
+3. Alle processen op poort 8080 gestopt
+```
+
+### Scenario 3: Failed logins blokkeren
+```
+1. Bekijk "Login Pogingen" in Firewall Control
+2. Rechtermuisklik op failed login
+3. IP wordt auto-gevuld
+4. Klik Block
+```
+
+### Scenario 3: Failed logins blokkeren
+```
+1. Bekijk "Login Pogingen" in Firewall Control
+2. Rechtermuisklik op failed login
+3. IP wordt auto-gevuld
+4. Klik Block
+```
+
+## 🖥️ Screenshots Layout
+
+```
+┌─────────────────────┐         ┌─────────────────────┐
+│ 🔥 Firewall Control │         │ 🧠 Port Monitor Pro │
+│ (LINKS)             │         │ (RECHTS)            │
+├─────────────────────┤         ├─────────────────────┤
+│ 🚫 Block IP         │         │ 🏠 Toggle Localhost │
+│ 📋 Rules            │         │ 📡 Toggle Verkeer   │
+│ 🔒 Blocked IPs      │         │ 🔪 Kill Poort       │
+│ 📊 Activity         │         │ 📍 Luisterende      │
+│ 🔑 Logins           │         │ 🌐 Verbindingen     │
+└─────────────────────┘         └─────────────────────┘
+```
+
+## 🔧 Troubleshooting
+
+**"Permission denied" bij firewall:**
+```bash
+# Run met sudo of voeg user toe aan sudoers
+sudo usermod -aG sudo $USER
+```
+
+**"iptables command not found":**
+```bash
+sudo apt install iptables
+```
+
+**"UFW not available":**
+```bash
+sudo apt install ufw
+sudo ufw enable
+```
+
+**Sidebar verdwijnt:**
+- Klik op de header en sleep terug
+- Of herstart met ./launch_both.sh
+
+## 🎨 Kleurenschema
+
+### Port Monitor (Groen thema):
+- 🟢 Groen: Actieve poorten / Succes
+- 🔴 Rood: Gesloten poorten / Error
+- 🔵 Blauw: Inkomend verkeer
+- 🟠 Oranje: Uitgaand verkeer
+
+### Firewall Control (Oranje thema):
+- 🔴 Rood: Geblokkeerde IPs / Failed logins
+- 🟢 Groen: Succes / Active logins
+- 🟠 Oranje: Waarschuwingen
+- 🔵 Blauw: Netwerk info
+- 🟡 Goud: Systeem info
+
+## 📝 Licentie
 MIT
+
+## 👨‍💻 Auteur
+cali1997
+
+## 🌟 Credits
+- GTK3 voor UI framework
+- iptables/UFW voor firewall
+- ss/lsof voor netwerk monitoring
