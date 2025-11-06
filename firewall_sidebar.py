@@ -185,17 +185,40 @@ class FirewallSidebar(Gtk.Window):
         self.blocked_tree.append_column(col)
         scrolled1.add(self.blocked_tree)
 
-        # Systeem Activiteit
+        # Open Poorten Lijst - GROOT EN ZICHTBAAR
+        lbl_open_ports = Gtk.Label()
+        lbl_open_ports.set_markup("<span foreground='#FFD700' size='x-large'><b>🔓 OPEN POORTEN:</b></span>")
+        lbl_open_ports.set_xalign(0)
+        lbl_open_ports.set_margin_start(6)
+        lbl_open_ports.set_margin_top(10)
+        vbox.pack_start(lbl_open_ports, False, False, 5)
+
+        scrolled_ports = Gtk.ScrolledWindow()
+        scrolled_ports.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled_ports.set_size_request(-1, 180)
+        vbox.pack_start(scrolled_ports, False, False, 0)
+
+        self.ports_store = Gtk.ListStore(str, str)  # [port info, color]
+        self.ports_tree = Gtk.TreeView(model=self.ports_store)
+        self.ports_tree.set_headers_visible(True)
+
+        renderer_port = Gtk.CellRendererText()
+        col_port = Gtk.TreeViewColumn("🔌 Protocol | Poort | Process", renderer_port, text=0, foreground=1)
+        col_port.set_expand(True)
+        self.ports_tree.append_column(col_port)
+        scrolled_ports.add(self.ports_tree)
+
+        # Systeem Activiteit (kleiner)
         lbl_activity = Gtk.Label()
-        lbl_activity.set_markup("<span foreground='#FFD700'><b>📊 Systeem Activiteit:</b></span>")
+        lbl_activity.set_markup("<span foreground='#00BFFF'><b>📊 Systeem Info:</b></span>")
         lbl_activity.set_xalign(0)
         lbl_activity.set_margin_start(6)
         vbox.pack_start(lbl_activity, False, False, 3)
 
         scrolled2 = Gtk.ScrolledWindow()
         scrolled2.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled2.set_size_request(-1, 200)
-        vbox.pack_start(scrolled2, True, True, 0)
+        scrolled2.set_size_request(-1, 100)
+        vbox.pack_start(scrolled2, False, False, 0)
 
         self.activity_store = Gtk.ListStore(str, str)  # [activity, color]
         self.activity_tree = Gtk.TreeView(model=self.activity_store)
@@ -233,6 +256,7 @@ class FirewallSidebar(Gtk.Window):
         # Start monitoring threads
         threading.Thread(target=self._monitor_activity, daemon=True).start()
         threading.Thread(target=self._monitor_live_ips, daemon=True).start()
+        threading.Thread(target=self._monitor_open_ports, daemon=True).start()
         GLib.timeout_add(5000, self.refresh_blocked_list)
 
     def on_header_click(self, widget, event):
@@ -882,7 +906,121 @@ class FirewallSidebar(Gtk.Window):
             
             time.sleep(INTERVAL)
 
-    def _monitor_live_ips(self):
+    def _monitor_open_ports(self):
+        """Monitor alle open/luisterende poorten"""
+        while True:
+            try:
+                # Get alle luisterende poorten
+                result = subprocess.run(["ss", "-tulnp"], capture_output=True, text=True)
+                
+                ports_list = []
+                
+                for line in result.stdout.split('\n')[1:]:
+                    parts = line.split()
+                    if len(parts) < 5:
+                        continue
+                    
+                    proto = parts[0]
+                    local = parts[4]
+                    
+                    # Extract poort
+                    try:
+                        if ':' in local:
+                            port = local.split(':')[-1]
+                        else:
+                            continue
+                        
+                        # Skip als geen getal
+                        if not port.isdigit():
+                            continue
+                        
+                        port_num = int(port)
+                        
+                        # Get process info
+                        process = "?"
+                        if len(parts) >= 7:
+                            pid_match = re.search(r'pid=(\d+)', parts[6])
+                            if pid_match:
+                                pid = pid_match.group(1)
+                                try:
+                                    pname = subprocess.run(
+                                        ["ps", "-p", pid, "-o", "comm="],
+                                        capture_output=True, text=True
+                                    ).stdout.strip()
+                                    process = pname if pname else "?"
+                                except:
+                                    pass
+                        
+                        # Bepaal kleur op basis van poort
+                        if port_num in [22, 80, 443]:  # Standaard poorten
+                            color = "#00FF00"  # Groen - normaal
+                        elif port_num < 1024:  # Privileged ports
+                            color = "#FFD700"  # Goud - belangrijk
+                        elif port_num in [23, 21, 445, 139, 3389]:  # Gevaarlijk
+                            color = "#FF0000"  # Rood - gevaar!
+                        else:
+                            color = "#00BFFF"  # Blauw - custom
+                        
+                        # Check if localhost only
+                        if "127.0.0.1" in local or "::1" in local:
+                            scope = "localhost"
+                            color = "#808080"  # Grijs - alleen local
+                        else:
+                            scope = "EXTERN"
+                        
+                        ports_list.append({
+                            'proto': proto,
+                            'port': port_num,
+                            'process': process,
+                            'scope': scope,
+                            'color': color,
+                            'local': local
+                        })
+                    
+                    except Exception as e:
+                        continue
+                
+                # Update UI
+                GLib.idle_add(self.ports_store.clear)
+                
+                # Sorteer op poortnummer
+                ports_list.sort(key=lambda x: x['port'])
+                
+                # Groepeer per type
+                extern_ports = [p for p in ports_list if p['scope'] == 'EXTERN']
+                local_ports = [p for p in ports_list if p['scope'] == 'localhost']
+                
+                # Toon externe poorten eerst (belangrijker!)
+                if extern_ports:
+                    GLib.idle_add(self.ports_store.append, ["═══ EXTERNE POORTEN (bereikbaar van buitenaf) ═══", "#FFFFFF"])
+                    for port in extern_ports:
+                        display = f"{port['proto']:4} | {port['port']:5} | {port['process'][:20]:20} | {port['local']}"
+                        GLib.idle_add(self.ports_store.append, [display, port['color']])
+                
+                # Dan localhost poorten
+                if local_ports:
+                    GLib.idle_add(self.ports_store.append, ["", "#000000"])
+                    GLib.idle_add(self.ports_store.append, ["═══ LOCALHOST POORTEN (alleen intern) ═══", "#808080"])
+                    for port in local_ports[:10]:  # Max 10 localhost
+                        display = f"{port['proto']:4} | {port['port']:5} | {port['process'][:20]:20}"
+                        GLib.idle_add(self.ports_store.append, [display, port['color']])
+                
+                # Totalen
+                GLib.idle_add(self.ports_store.append, ["", "#000000"])
+                summary = f"📊 Totaal: {len(extern_ports)} extern, {len(local_ports)} localhost"
+                GLib.idle_add(self.ports_store.append, [summary, "#FFFFFF"])
+                
+                # Waarschuwing bij gevaarlijke poorten
+                dangerous = [p for p in extern_ports if p['port'] in [23, 21, 445, 139, 3389]]
+                if dangerous:
+                    GLib.idle_add(self.ports_store.append, [f"⚠️ GEVAAR: {len(dangerous)} onveilige poorten open!", "#FF0000"])
+                
+            except Exception as e:
+                print(f"Port monitor error: {e}")
+            
+            time.sleep(INTERVAL)  # Update elke 3 seconden
+
+    def show_notification(self, msg, color):
         """Monitor live IP verbindingen - wie praat met je PC"""
         seen_ips = {}
         
