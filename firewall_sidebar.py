@@ -1020,7 +1020,7 @@ class FirewallSidebar(Gtk.Window):
             
             time.sleep(INTERVAL)  # Update elke 3 seconden
 
-    def show_notification(self, msg, color):
+    def _monitor_live_ips(self):
         """Monitor live IP verbindingen - wie praat met je PC"""
         seen_ips = {}
         
