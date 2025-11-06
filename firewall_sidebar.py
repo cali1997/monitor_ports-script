@@ -148,6 +148,20 @@ class FirewallSidebar(Gtk.Window):
         btn_scan.connect("clicked", self.on_security_scan)
         backup_box.pack_start(btn_scan, True, True, 0)
 
+        # Dangerous actions
+        danger_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        danger_box.set_margin_start(6)
+        danger_box.set_margin_end(6)
+        block_frame.pack_start(danger_box, False, False, 3)
+
+        btn_close_all = Gtk.Button(label="🔒 Close All Ports")
+        btn_close_all.connect("clicked", self.on_close_all_ports)
+        danger_box.pack_start(btn_close_all, True, True, 0)
+
+        btn_lockdown = Gtk.Button(label="🛡️ Lockdown Mode")
+        btn_lockdown.connect("clicked", self.on_lockdown_mode)
+        danger_box.pack_start(btn_lockdown, True, True, 0)
+
         # Geblokkeerde IPs lijst
         lbl_blocked = Gtk.Label()
         lbl_blocked.set_markup("<span foreground='#FF4444'><b>🔒 Geblokkeerde IP's:</b></span>")
@@ -611,6 +625,176 @@ class FirewallSidebar(Gtk.Window):
                 GLib.idle_add(self.activity_store.append, [f"   3. SSH root login uitschakelen", "#00BFFF"])
         
         GLib.idle_add(self.show_notification, f"✅ Scan compleet! Score: {score}/100", status_color)
+
+    def on_close_all_ports(self, button):
+        """Sluit alle niet-essentiële open poorten (GEVAARLIJK!)"""
+        dialog = Gtk.MessageDialog(
+            parent=self,
+            flags=0,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text="🔒 ALLE open poorten sluiten?"
+        )
+        dialog.format_secondary_text(
+            "Dit zal ALLE luisterende processen stoppen behalve:\n"
+            "- SSH (22) - om locked out te voorkomen\n"
+            "- Dit script zelf\n\n"
+            "⚠️ Dit stopt webservers, databases, etc!\n"
+            "Weet je het ZEKER?"
+        )
+        response = dialog.run()
+        dialog.destroy()
+        
+        if response == Gtk.ResponseType.YES:
+            threading.Thread(target=self._close_all_ports_thread, daemon=True).start()
+
+    def _close_all_ports_thread(self):
+        """Background thread om alle poorten te sluiten"""
+        GLib.idle_add(self.show_notification, "🔒 Bezig met sluiten van poorten...", "#FFA500")
+        
+        closed_count = 0
+        skipped = []
+        essential_ports = [22]  # SSH - niet sluiten!
+        
+        try:
+            # Get alle luisterende processen
+            result = subprocess.run(["ss", "-tulnp"], capture_output=True, text=True)
+            
+            for line in result.stdout.split('\n')[1:]:
+                parts = line.split()
+                if len(parts) < 7:
+                    continue
+                
+                local = parts[4]
+                
+                # Extract poort
+                try:
+                    port = int(local.split(':')[-1])
+                except:
+                    continue
+                
+                # Skip essentiële poorten
+                if port in essential_ports:
+                    skipped.append(f"Port {port} (SSH)")
+                    continue
+                
+                # Skip localhost only
+                if "127.0.0.1" in local or "::1" in local:
+                    continue
+                
+                # Extract PID
+                pid_match = re.search(r'pid=(\d+)', parts[6] if len(parts) > 6 else "")
+                if pid_match:
+                    pid = pid_match.group(1)
+                    
+                    # Get process naam
+                    try:
+                        pname = subprocess.run(
+                            ["ps", "-p", pid, "-o", "comm="],
+                            capture_output=True, text=True
+                        ).stdout.strip()
+                        
+                        # Skip eigen proces
+                        if "python" in pname.lower() and "sidebar" in pname.lower():
+                            continue
+                        
+                        # Kill proces
+                        os.kill(int(pid), signal.SIGTERM)
+                        closed_count += 1
+                        GLib.idle_add(
+                            self.show_notification,
+                            f"✅ Gesloten: {pname} op poort {port}",
+                            "#00FF00"
+                        )
+                        time.sleep(0.1)  # Kleine pauze
+                        
+                    except Exception as e:
+                        print(f"Kon proces {pid} niet stoppen: {e}")
+        
+        except Exception as e:
+            GLib.idle_add(self.show_notification, f"❌ Error: {e}", "#FF0000")
+        
+        # Samenvatting
+        summary = f"🔒 {closed_count} poorten gesloten"
+        if skipped:
+            summary += f"\n⚠️ {len(skipped)} overgeslagen (essentieel)"
+        
+        GLib.idle_add(self.show_notification, summary, "#FFD700")
+
+    def on_lockdown_mode(self, button):
+        """Volledige lockdown: sluit poorten + blokkeer alle inkomend verkeer"""
+        dialog = Gtk.MessageDialog(
+            parent=self,
+            flags=0,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text="🛡️ LOCKDOWN MODE?"
+        )
+        dialog.format_secondary_text(
+            "⚠️ EXTREME MAATREGEL ⚠️\n\n"
+            "Dit zal:\n"
+            "1. ALLE open poorten sluiten\n"
+            "2. ALLE inkomend verkeer blokkeren\n"
+            "3. UFW op 'deny incoming' zetten\n\n"
+            "Gebruik dit ALLEEN bij:\n"
+            "- Actieve aanval gedetecteerd\n"
+            "- Verdacht gedrag\n"
+            "- Emergency situatie\n\n"
+            "Je kunt hierna niet meer bereikbaar zijn!\n"
+            "Doorgaan?"
+        )
+        response = dialog.run()
+        dialog.destroy()
+        
+        if response == Gtk.ResponseType.YES:
+            threading.Thread(target=self._lockdown_mode_thread, daemon=True).start()
+
+    def _lockdown_mode_thread(self):
+        """Volledige lockdown uitvoeren"""
+        GLib.idle_add(self.show_notification, "🛡️ LOCKDOWN MODE GEACTIVEERD!", "#FF0000")
+        
+        try:
+            # 1. Sluit alle poorten
+            GLib.idle_add(self.show_notification, "🔒 Stap 1: Sluiten alle poorten...", "#FFA500")
+            self._close_all_ports_thread()
+            
+            time.sleep(1)
+            
+            # 2. Blokkeer alle inkomend verkeer
+            GLib.idle_add(self.show_notification, "🚫 Stap 2: Blokkeren inkomend verkeer...", "#FFA500")
+            
+            # iptables: drop alles behalve established
+            commands = [
+                ["iptables", "-P", "INPUT", "DROP"],
+                ["iptables", "-A", "INPUT", "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"],
+                ["iptables", "-A", "INPUT", "-i", "lo", "-j", "ACCEPT"],
+            ]
+            
+            for cmd in commands:
+                try:
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    if result.returncode != 0:
+                        subprocess.run(["pkexec"] + cmd, capture_output=True, text=True)
+                except:
+                    pass
+            
+            # UFW lockdown
+            try:
+                subprocess.run(["pkexec", "ufw", "default", "deny", "incoming"], 
+                             capture_output=True, text=True)
+                subprocess.run(["pkexec", "ufw", "enable"], 
+                             capture_output=True, text=True)
+            except:
+                pass
+            
+            time.sleep(1)
+            
+            # 3. Klaar
+            GLib.idle_add(self.show_notification, "✅ LOCKDOWN ACTIEF - Machine beveiligd!", "#FF0000")
+            GLib.idle_add(self.show_notification, "⚠️ Restart nodig om normale mode te herstellen", "#FFA500")
+            
+        except Exception as e:
+            GLib.idle_add(self.show_notification, f"❌ Lockdown error: {e}", "#FF0000")
 
     def refresh_blocked_list(self):
         """Refresh lijst van geblokkeerde IPs"""
