@@ -130,6 +130,24 @@ class FirewallSidebar(Gtk.Window):
         btn_status.connect("clicked", self.on_ufw_status)
         quick_box.pack_start(btn_status, True, True, 0)
 
+        # Backup/Restore en Security Scan
+        backup_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        backup_box.set_margin_start(6)
+        backup_box.set_margin_end(6)
+        block_frame.pack_start(backup_box, False, False, 3)
+
+        btn_save = Gtk.Button(label="💾 Save Rules")
+        btn_save.connect("clicked", self.on_save_rules)
+        backup_box.pack_start(btn_save, True, True, 0)
+
+        btn_restore = Gtk.Button(label="♻️ Restore")
+        btn_restore.connect("clicked", self.on_restore_rules)
+        backup_box.pack_start(btn_restore, True, True, 0)
+
+        btn_scan = Gtk.Button(label="🔍 Security Scan")
+        btn_scan.connect("clicked", self.on_security_scan)
+        backup_box.pack_start(btn_scan, True, True, 0)
+
         # Geblokkeerde IPs lijst
         lbl_blocked = Gtk.Label()
         lbl_blocked.set_markup("<span foreground='#FF4444'><b>🔒 Geblokkeerde IP's:</b></span>")
@@ -388,6 +406,211 @@ class FirewallSidebar(Gtk.Window):
                     GLib.idle_add(self.activity_store.append, [line, "#FFD700"])
         except Exception as e:
             self.show_notification(f"❌ UFW niet beschikbaar: {e}", "#FF0000")
+
+    def on_save_rules(self, button):
+        """Sla huidige firewall rules op naar backup bestand"""
+        try:
+            backup_file = os.path.expanduser("~/firewall_rules_backup.txt")
+            
+            # Sla iptables rules op
+            result = subprocess.run(["iptables-save"], capture_output=True, text=True)
+            if result.returncode != 0:
+                result = subprocess.run(["pkexec", "iptables-save"], capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                with open(backup_file, 'w') as f:
+                    f.write(f"# Firewall Rules Backup - {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(result.stdout)
+                
+                self.show_notification(f"✅ Rules opgeslagen in {backup_file}", "#00FF00")
+            else:
+                self.show_notification("❌ Kon rules niet opslaan", "#FF0000")
+        except Exception as e:
+            self.show_notification(f"❌ Error: {e}", "#FF0000")
+
+    def on_restore_rules(self, button):
+        """Herstel firewall rules van backup"""
+        backup_file = os.path.expanduser("~/firewall_rules_backup.txt")
+        
+        if not os.path.exists(backup_file):
+            self.show_notification("⚠️ Geen backup gevonden!", "#FFA500")
+            return
+        
+        dialog = Gtk.MessageDialog(
+            parent=self,
+            flags=0,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text="♻️ Firewall rules herstellen?"
+        )
+        dialog.format_secondary_text(f"Dit zal de huidige rules vervangen met backup.\n\nBackup: {backup_file}")
+        response = dialog.run()
+        dialog.destroy()
+        
+        if response == Gtk.ResponseType.YES:
+            try:
+                # Lees backup
+                with open(backup_file, 'r') as f:
+                    rules = f.read()
+                
+                # Herstel rules
+                result = subprocess.run(
+                    ["pkexec", "sh", "-c", f"echo '{rules}' | iptables-restore"],
+                    capture_output=True, text=True
+                )
+                
+                if result.returncode == 0:
+                    self.show_notification("✅ Rules hersteld!", "#00FF00")
+                else:
+                    self.show_notification("❌ Kon rules niet herstellen", "#FF0000")
+            except Exception as e:
+                self.show_notification(f"❌ Error: {e}", "#FF0000")
+
+    def on_security_scan(self, button):
+        """Voer complete security scan uit"""
+        self.show_notification("🔍 Security scan gestart...", "#00BFFF")
+        GLib.idle_add(self.activity_store.clear)
+        
+        # Start scan in background thread
+        threading.Thread(target=self._run_security_scan, daemon=True).start()
+
+    def _run_security_scan(self):
+        """Voer security checks uit"""
+        findings = []
+        score = 100
+        
+        # 1. Check UFW status
+        try:
+            result = subprocess.run(["ufw", "status"], capture_output=True, text=True)
+            if "Status: active" in result.stdout:
+                findings.append(("✅ UFW Firewall: ACTIEF", "#00FF00"))
+            else:
+                findings.append(("❌ UFW Firewall: INACTIEF (GEVAAR!)", "#FF0000"))
+                score -= 30
+        except:
+            findings.append(("⚠️ UFW niet geïnstalleerd", "#FFA500"))
+            score -= 20
+        
+        # 2. Check open poorten
+        try:
+            result = subprocess.run(["ss", "-tuln"], capture_output=True, text=True)
+            open_ports = len([l for l in result.stdout.split('\n') if ':' in l]) - 1
+            if open_ports < 10:
+                findings.append((f"✅ Open poorten: {open_ports} (goed)", "#00FF00"))
+            elif open_ports < 20:
+                findings.append((f"⚠️ Open poorten: {open_ports} (veel)", "#FFA500"))
+                score -= 10
+            else:
+                findings.append((f"❌ Open poorten: {open_ports} (TE VEEL!)", "#FF0000"))
+                score -= 20
+        except:
+            pass
+        
+        # 3. Check SSH configuratie
+        if os.path.exists("/etc/ssh/sshd_config"):
+            try:
+                with open("/etc/ssh/sshd_config", 'r') as f:
+                    ssh_config = f.read()
+                    
+                if "PermitRootLogin no" in ssh_config or "PermitRootLogin prohibit-password" in ssh_config:
+                    findings.append(("✅ SSH: Root login uitgeschakeld", "#00FF00"))
+                else:
+                    findings.append(("⚠️ SSH: Root login mogelijk (risico)", "#FFA500"))
+                    score -= 15
+                    
+                if "PasswordAuthentication no" in ssh_config:
+                    findings.append(("✅ SSH: Alleen key-based auth", "#00FF00"))
+                else:
+                    findings.append(("⚠️ SSH: Password auth ingeschakeld", "#FFA500"))
+                    score -= 10
+            except:
+                findings.append(("⚠️ SSH config niet leesbaar", "#FFA500"))
+        else:
+            findings.append(("✅ SSH niet geïnstalleerd", "#00FF00"))
+        
+        # 4. Check voor gevaarlijke open poorten
+        dangerous_ports = [23, 21, 445, 139, 3389]  # telnet, ftp, smb, rdp
+        try:
+            result = subprocess.run(["ss", "-tuln"], capture_output=True, text=True)
+            for port in dangerous_ports:
+                if f":{port}" in result.stdout:
+                    findings.append((f"❌ GEVAAR: Poort {port} is open!", "#FF0000"))
+                    score -= 25
+        except:
+            pass
+        
+        # 5. Check iptables rules
+        try:
+            result = subprocess.run(["iptables", "-L", "-n"], capture_output=True, text=True)
+            if result.returncode != 0:
+                result = subprocess.run(["pkexec", "iptables", "-L", "-n"], capture_output=True, text=True)
+            
+            rules_count = len([l for l in result.stdout.split('\n') if 'DROP' in l or 'REJECT' in l])
+            if rules_count > 0:
+                findings.append((f"✅ iptables: {rules_count} blokkeer regels actief", "#00FF00"))
+            else:
+                findings.append(("⚠️ iptables: Geen blokkeer regels", "#FFA500"))
+                score -= 15
+        except:
+            pass
+        
+        # 6. Check failed login attempts
+        try:
+            if os.path.exists("/var/log/auth.log") and os.access("/var/log/auth.log", os.R_OK):
+                result = subprocess.run(
+                    ["grep", "-c", "Failed password", "/var/log/auth.log"],
+                    capture_output=True, text=True
+                )
+                failed_count = int(result.stdout.strip()) if result.stdout.strip().isdigit() else 0
+                if failed_count > 50:
+                    findings.append((f"❌ {failed_count} mislukte logins! (aanval?)", "#FF0000"))
+                    score -= 20
+                elif failed_count > 10:
+                    findings.append((f"⚠️ {failed_count} mislukte logins", "#FFA500"))
+                    score -= 10
+                else:
+                    findings.append((f"✅ {failed_count} mislukte logins (normaal)", "#00FF00"))
+        except:
+            pass
+        
+        # Bepaal overall status
+        if score >= 80:
+            status_color = "#00FF00"
+            status = "GOED BEVEILIGD"
+        elif score >= 60:
+            status_color = "#FFD700"
+            status = "MATIG BEVEILIGD"
+        elif score >= 40:
+            status_color = "#FFA500"
+            status = "ZWAK BEVEILIGD"
+        else:
+            status_color = "#FF0000"
+            status = "ONVEILIG!"
+        
+        # Toon resultaten
+        GLib.idle_add(self.activity_store.append, [f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "#FFFFFF"])
+        GLib.idle_add(self.activity_store.append, [f"🛡️  SECURITY SCAN RESULTATEN", "#FFFFFF"])
+        GLib.idle_add(self.activity_store.append, [f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "#FFFFFF"])
+        GLib.idle_add(self.activity_store.append, [f"", "#FFFFFF"])
+        GLib.idle_add(self.activity_store.append, [f"📊 Security Score: {score}/100", status_color])
+        GLib.idle_add(self.activity_store.append, [f"🔒 Status: {status}", status_color])
+        GLib.idle_add(self.activity_store.append, [f"", "#FFFFFF"])
+        
+        for finding, color in findings:
+            GLib.idle_add(self.activity_store.append, [finding, color])
+        
+        GLib.idle_add(self.activity_store.append, [f"", "#FFFFFF"])
+        GLib.idle_add(self.activity_store.append, [f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "#FFFFFF"])
+        
+        if score < 80:
+            GLib.idle_add(self.activity_store.append, [f"💡 TIP: Verbeter je score door:", "#00BFFF"])
+            if score < 70:
+                GLib.idle_add(self.activity_store.append, [f"   1. UFW activeren: sudo ufw enable", "#00BFFF"])
+            if score < 80:
+                GLib.idle_add(self.activity_store.append, [f"   2. Onnodige poorten sluiten", "#00BFFF"])
+                GLib.idle_add(self.activity_store.append, [f"   3. SSH root login uitschakelen", "#00BFFF"])
+        
+        GLib.idle_add(self.show_notification, f"✅ Scan compleet! Score: {score}/100", status_color)
 
     def refresh_blocked_list(self):
         """Refresh lijst van geblokkeerde IPs"""
