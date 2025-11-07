@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
-# Start beide sidebars tegelijk
+# Start complete security monitoring suite
 
-echo "🚀 Starting Port Monitor Pro & Firewall Control..."
-echo ""
-echo "ℹ️  Firewall functies vereisen sudo rechten."
-echo "   Je wordt om wachtwoord gevraagd wanneer je een IP blokkeert."
-echo ""
+echo "🚀 Starting Security Monitoring Suite..."
 
 # Start port monitor (rechts)
 python3 "$(dirname "$0")/port_sidebar.py" &
@@ -18,14 +14,25 @@ sleep 0.5
 python3 "$(dirname "$0")/firewall_sidebar.py" &
 FIREWALL_PID=$!
 
-echo "✅ Port Monitor PID: $PORT_PID (rechts)"
-echo "✅ Firewall Control PID: $FIREWALL_PID (links)"
+# Wacht even
+sleep 0.5
+
+# Start security defense (center)
+python3 "$(dirname "$0")/security_defense.py" &
+SECURITY_PID=$!
+
+echo "✅ Port Monitor PID: $PORT_PID"
+echo "✅ Firewall Control PID: $FIREWALL_PID"
+echo "✅ Security Defense PID: $SECURITY_PID"
 echo ""
-echo "💡 TIP: Sleep de headers om vensters te verplaatsen!"
-echo "📌 Druk op Ctrl+C om beide te stoppen..."
+echo "🛡️  SECURITY SUITE ACTIVE:"
+echo "   - Port Monitor (rechts)"
+echo "   - Firewall Control (links)"
+echo "   - Security Defense (center - auto-blocks attacks)"
 echo ""
+echo "Druk op Ctrl+C om alle systemen te stoppen..."
 
 # Wacht op user interrupt
-trap "kill $PORT_PID $FIREWALL_PID 2>/dev/null; echo ''; echo '👋 Beide sidebars gestopt!'; exit" INT TERM
+trap "kill $PORT_PID $FIREWALL_PID $SECURITY_PID 2>/dev/null; echo '👋 Alle systemen gestopt!'; exit" INT TERM
 
 wait
