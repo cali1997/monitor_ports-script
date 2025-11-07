@@ -60,11 +60,19 @@ class SecurityDefense(Gtk.Window):
             background-color: #0a0a0a;
             color: #00FF00;
         }
-        .alarm {
+        .alarm-red {
             background-color: #FF0000;
             color: #FFFFFF;
             font-size: 32px;
             font-weight: bold;
+            text-shadow: 2px 2px 4px #000000, -2px -2px 4px #000000, 2px -2px 4px #000000, -2px 2px 4px #000000;
+        }
+        .alarm-black {
+            background-color: #000000;
+            color: #FFFFFF;
+            font-size: 32px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px #FF0000, -2px -2px 4px #FF0000, 2px -2px 4px #FF0000, -2px 2px 4px #FF0000;
         }
         """)
         Gtk.StyleContext.add_provider_for_screen(
@@ -341,7 +349,7 @@ class SecurityDefense(Gtk.Window):
         self._show_alarm_screen(ip)
     
     def _show_alarm_screen(self, ip):
-        """Toon knipperend rood alarm scherm"""
+        """Toon knipperend rood alarm scherm - tekst blijft leesbaar"""
         # Maak fullscreen overlay
         if self.alarm_overlay is None:
             self.alarm_overlay = Gtk.Window()
@@ -349,9 +357,9 @@ class SecurityDefense(Gtk.Window):
             self.alarm_overlay.set_keep_above(True)
             self.alarm_overlay.fullscreen()
             
-            # Red flashing label
+            # Label met tekst
             self.alarm_label = Gtk.Label()
-            self.alarm_label.get_style_context().add_class("alarm")
+            self.alarm_label.get_style_context().add_class("alarm-red")
             self.alarm_overlay.add(self.alarm_label)
         
         self.alarm_label.set_markup(
@@ -363,12 +371,12 @@ class SecurityDefense(Gtk.Window):
         
         self.alarm_overlay.show_all()
         
-        # Start knipperen
+        # Start knipperen (alleen achtergrond)
         self.blink_count = 0
         GLib.timeout_add(500, self._blink_alarm)
     
     def _blink_alarm(self):
-        """Laat alarm knipperen"""
+        """Laat achtergrond knipperen (tekst blijft zichtbaar)"""
         if self.blink_count >= 10:  # 5 seconden knipperen
             self.alarm_overlay.hide()
             self.alarm_active = False
@@ -377,11 +385,16 @@ class SecurityDefense(Gtk.Window):
             GLib.timeout_add(5000, self._reset_status)
             return False
         
-        # Toggle visibility
+        # Toggle achtergrondkleur tussen rood en zwart
+        style_context = self.alarm_label.get_style_context()
         if self.blink_count % 2 == 0:
-            self.alarm_overlay.hide()
+            # Verwijder rode class, voeg zwarte toe
+            style_context.remove_class("alarm-red")
+            style_context.add_class("alarm-black")
         else:
-            self.alarm_overlay.show_all()
+            # Verwijder zwarte class, voeg rode toe
+            style_context.remove_class("alarm-black")
+            style_context.add_class("alarm-red")
         
         self.blink_count += 1
         return True
